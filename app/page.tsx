@@ -1,100 +1,120 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
+import { useState } from "react";
+
+type Mode = "reply" | "caption";
+type NsfwLevel = "low" | "medium" | "hard";
+type Platform = "instagram" | "threads" | "telegram" | "fanvue";
 
 type ChatMessage = {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 };
 
-type Platform = 'instagram' | 'threads' | 'telegram' | 'fanvue';
-type NsfwLevel = 'low' | 'medium' | 'hard';
-type Mode = 'reply' | 'caption';
+const platforms: Array<{ value: Platform; label: string }> = [
+  { value: "instagram", label: "Instagram" },
+  { value: "threads", label: "Threads" },
+  { value: "telegram", label: "Telegram" },
+  { value: "fanvue", label: "Fanvue" },
+];
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+async function resizeImage(
+  file: File,
+  maxWidth = 900,
+  quality = 0.72
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const img = new Image();
+
+      img.onload = () => {
+        let { width, height } = img;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context error"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL("image/jpeg", quality);
+        resolve(compressed);
+      };
+
+      img.onerror = () => reject(new Error("Image load error"));
+      img.src = reader.result as string;
+    };
+
+    reader.onerror = () => reject(new Error("File read error"));
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Home() {
-  const [mode, setMode] = useState<Mode>('reply');
-  const [nsfwLevel, setNsfwLevel] = useState<NsfwLevel>('medium');
-  const [platform, setPlatform] = useState<Platform>('instagram');
+  const [mode, setMode] = useState<Mode>("reply");
+  const [nsfwLevel, setNsfwLevel] = useState<NsfwLevel>("medium");
+  const [platform, setPlatform] = useState<Platform>("instagram");
 
-  const [replyInput, setReplyInput] = useState('');
+  const [replyInput, setReplyInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [replyLoading, setReplyLoading] = useState(false);
 
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-  const [captionResult, setCaptionResult] = useState('');
+  const [captionResult, setCaptionResult] = useState("");
   const [isCaptionLoading, setIsCaptionLoading] = useState(false);
 
-  const platforms: Array<{ value: Platform; label: string }> = [
-    { value: 'instagram', label: 'Instagram' },
-    { value: 'threads', label: 'Threads' },
-    { value: 'telegram', label: 'Telegram' },
-    { value: 'fanvue', label: 'Fanvue' },
-  ];
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-
-    if (files.length > 10) {
-      alert('Максимум 10 фото для карусели');
-      return;
-    }
-
-    if (files.some((f) => f.size > 10 * 1024 * 1024)) {
-      alert('Каждое фото не больше 10 МБ');
-      return;
-    }
-
-    Promise.all(
-      files.map(
-        (file) =>
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () =>
-              reject(new Error(`Не удалось прочитать ${file.name}`));
-            reader.readAsDataURL(file);
-          }),
-      ),
-    )
-      .then((previews) => setImagePreviews(previews))
-      .catch(() => alert('Ошибка чтения изображений'));
-  };
-
-  const generateReply = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleReplySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const trimmedInput = replyInput.trim();
-    if (!trimmedInput) {
-      alert('Вставь комментарий');
-      return;
-    }
+    const trimmed = replyInput.trim();
+    if (!trimmed || replyLoading) return;
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: trimmedInput,
+      id: uid(),
+      role: "user",
+      content: trimmed,
     };
 
-    const assistantId = crypto.randomUUID();
+    const assistantId = uid();
 
     setMessages((prev) => [
       ...prev,
       userMessage,
-      { id: assistantId, role: 'assistant', content: '' },
+      { id: assistantId, role: "assistant", content: "" },
     ]);
-    setReplyInput('');
+    setReplyInput("");
     setReplyLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: trimmedInput }],
+          messages: [
+            {
+              role: "user",
+              content: trimmed,
+            },
+          ],
           nsfwLevel,
           platform,
-          mode: 'reply',
+          mode: "reply",
         }),
       });
 
@@ -104,12 +124,10 @@ export default function Home() {
       }
 
       const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error('Пустой ответ от API');
-      }
+      if (!reader) throw new Error("Пустой ответ от API");
 
-      let text = '';
       const decoder = new TextDecoder();
+      let text = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -119,44 +137,71 @@ export default function Home() {
 
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.id === assistantId ? { ...msg, content: text } : msg,
-          ),
+            msg.id === assistantId ? { ...msg, content: text } : msg
+          )
         );
       }
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'неизвестная ошибка';
+      const errorText =
+        err instanceof Error ? err.message : "неизвестная ошибка";
 
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === assistantId
-            ? { ...msg, content: `Ошибка: ${errorMessage}` }
-            : msg,
-        ),
+            ? { ...msg, content: `Ошибка: ${errorText}` }
+            : msg
+        )
       );
     } finally {
       setReplyLoading(false);
     }
   };
 
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(e.target.files || []);
+
+    if (files.length === 0) return;
+
+    if (files.length > 5) {
+      alert("Максимум 5 фото для карусели");
+      return;
+    }
+
+    if (files.some((f) => f.size > 5 * 1024 * 1024)) {
+      alert("Каждое фото не больше 5 МБ");
+      return;
+    }
+
+    try {
+      const previews = await Promise.all(
+        files.map((file) => resizeImage(file, 900, 0.72))
+      );
+      setImagePreviews(previews);
+    } catch {
+      alert("Ошибка обработки изображений");
+    }
+  };
+
   const generateCaption = async () => {
     if (imagePreviews.length === 0) {
-      alert('Загрузи хотя бы одно фото!');
+      alert("Загрузи хотя бы одно фото!");
       return;
     }
 
     setIsCaptionLoading(true);
-    setCaptionResult('');
+    setCaptionResult("");
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [],
           nsfwLevel,
           platform,
-          mode: 'caption',
+          mode: "caption",
           imageBase64Array: imagePreviews,
         }),
       });
@@ -167,12 +212,10 @@ export default function Home() {
       }
 
       const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error('Пустой ответ от API');
-      }
+      if (!reader) throw new Error("Пустой ответ от API");
 
-      let text = '';
       const decoder = new TextDecoder();
+      let text = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -182,16 +225,16 @@ export default function Home() {
         setCaptionResult(text);
       }
     } catch (err) {
-      setCaptionResult(
-        `Ошибка: ${err instanceof Error ? err.message : 'неизвестная ошибка'}`,
-      );
+      const message =
+        err instanceof Error ? err.message : "неизвестная ошибка";
+      setCaptionResult(`Ошибка: ${message}`);
     } finally {
       setIsCaptionLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white p-6 flex items-center justify-center">
+    <div className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
       <div className="max-w-3xl w-full">
         <h1 className="text-5xl font-bold text-center mb-8 text-violet-400">
           Synnie Bot 🔥
@@ -199,17 +242,17 @@ export default function Home() {
 
         <div className="flex justify-center gap-4 mb-8 bg-zinc-900 p-2 rounded-3xl">
           <button
-            onClick={() => setMode('reply')}
+            onClick={() => setMode("reply")}
             className={`flex-1 py-4 rounded-2xl font-bold ${
-              mode === 'reply' ? 'bg-violet-600' : 'bg-zinc-800'
+              mode === "reply" ? "bg-violet-600" : "bg-zinc-800"
             }`}
           >
             Ответы на комментарии
           </button>
           <button
-            onClick={() => setMode('caption')}
+            onClick={() => setMode("caption")}
             className={`flex-1 py-4 rounded-2xl font-bold ${
-              mode === 'caption' ? 'bg-violet-600' : 'bg-zinc-800'
+              mode === "caption" ? "bg-violet-600" : "bg-zinc-800"
             }`}
           >
             Описания фото / карусели
@@ -225,8 +268,8 @@ export default function Home() {
                 onClick={() => setPlatform(p.value)}
                 className={`px-7 py-3 rounded-2xl font-medium ${
                   platform === p.value
-                    ? 'bg-fuchsia-600 scale-105'
-                    : 'bg-zinc-800 hover:bg-zinc-700'
+                    ? "bg-fuchsia-600 scale-105"
+                    : "bg-zinc-800 hover:bg-zinc-700"
                 }`}
               >
                 {p.label}
@@ -236,14 +279,14 @@ export default function Home() {
         </div>
 
         <div className="flex justify-center gap-3 mb-10">
-          {(['low', 'medium', 'hard'] as NsfwLevel[]).map((level) => (
+          {(["low", "medium", "hard"] as NsfwLevel[]).map((level) => (
             <button
               key={level}
               onClick={() => setNsfwLevel(level)}
               className={`px-8 py-3 rounded-2xl font-semibold ${
                 nsfwLevel === level
-                  ? 'bg-violet-600 scale-110'
-                  : 'bg-zinc-800'
+                  ? "bg-violet-600 scale-110"
+                  : "bg-zinc-800"
               }`}
             >
               {level.toUpperCase()}
@@ -251,38 +294,28 @@ export default function Home() {
           ))}
         </div>
 
-        {mode === 'reply' && (
+        {mode === "reply" && (
           <div>
             <div className="bg-zinc-900 rounded-3xl p-8 mb-8 h-[420px] overflow-y-auto">
-              {messages.length === 0 && !replyLoading && (
-                <p className="text-center text-zinc-500">
-                  Вставь комментарий ниже, и Synnie сгенерирует 2 варианта ответа.
-                </p>
-              )}
-
               {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`mb-6 ${m.role === 'user' ? 'text-right' : ''}`}
-                >
+                <div key={m.id} className="mb-6">
                   <div
                     className={`inline-block max-w-[90%] rounded-2xl px-6 py-5 whitespace-pre-wrap ${
-                      m.role === 'user' ? 'bg-violet-600' : 'bg-zinc-800'
+                      m.role === "user" ? "bg-violet-600 ml-auto" : "bg-zinc-800"
                     }`}
                   >
-                    {m.content || (m.role === 'assistant' ? 'Synnie думает…' : '')}
+                    {m.content || (m.role === "assistant" ? "Synnie думает..." : "")}
                   </div>
                 </div>
               ))}
-
-              {replyLoading && (
-                <p className="text-center text-violet-400 mt-4">
-                  Synnie пишет 2 варианта...
+              {messages.length === 0 && (
+                <p className="text-center text-zinc-500">
+                  Вставь комментарий и получи готовый ответ
                 </p>
               )}
             </div>
 
-            <form onSubmit={generateReply} className="flex flex-col gap-4">
+            <form onSubmit={handleReplySubmit} className="flex flex-col gap-4">
               <textarea
                 value={replyInput}
                 onChange={(e) => setReplyInput(e.target.value)}
@@ -291,16 +324,16 @@ export default function Home() {
               />
               <button
                 type="submit"
-                disabled={replyLoading}
+                disabled={replyLoading || !replyInput.trim()}
                 className="bg-gradient-to-r from-violet-600 to-fuchsia-600 py-5 rounded-3xl text-2xl font-bold disabled:opacity-60"
               >
-                Сгенерировать 2 варианта
+                {replyLoading ? "Synnie думает..." : "Сгенерировать 2 варианта"}
               </button>
             </form>
           </div>
         )}
 
-        {mode === 'caption' && (
+        {mode === "caption" && (
           <div className="bg-zinc-900 rounded-3xl p-8">
             <input
               type="file"
@@ -309,25 +342,28 @@ export default function Home() {
               onChange={handleImageUpload}
               className="block w-full mb-6 text-sm text-zinc-400"
             />
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
               {imagePreviews.map((src, i) => (
                 <img
                   key={i}
                   src={src}
-                  className="rounded-xl border border-zinc-700 max-h-48 object-cover w-full"
+                  className="rounded-xl border border-zinc-700 max-h-56 w-full object-cover"
                   alt={`preview ${i + 1}`}
                 />
               ))}
             </div>
+
             <button
               onClick={generateCaption}
               disabled={isCaptionLoading || imagePreviews.length === 0}
               className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 py-5 rounded-3xl text-2xl font-bold disabled:opacity-60"
             >
               {isCaptionLoading
-                ? 'Grok анализирует карусель...'
+                ? "Synnie анализирует фото..."
                 : `Сгенерировать 2 описания (${imagePreviews.length} фото)`}
             </button>
+
             {captionResult && (
               <div className="mt-8 bg-zinc-800 p-6 rounded-2xl whitespace-pre-wrap text-sm">
                 {captionResult}
@@ -337,7 +373,7 @@ export default function Home() {
         )}
 
         <p className="text-center text-zinc-500 text-sm mt-10">
-          Grok • Vision • Карусели до 10 фото • Synnie Bot
+          Grok • Vision • До 5 фото • Synnie Bot
         </p>
       </div>
     </div>
