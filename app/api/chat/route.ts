@@ -13,21 +13,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const {
-      messages,
-      nsfwLevel = 'medium',
-      platform = 'instagram',
-      mode = 'reply',
-      imageBase64Array = [],
-    } = await req.json();
+    const body = await req.json();
 
-    const levelDesc = {
+    const messages = body.messages ?? [];
+    const nsfwLevel = body.nsfwLevel ?? 'medium';
+    const platform = body.platform ?? 'instagram';
+    const mode = body.mode ?? 'reply';
+    const imageBase64Array = body.imageBase64Array ?? [];
+
+    const levelDesc: Record<string, string> = {
       low: 'максимально мягко, только романтика и лёгкие намёки',
       medium: 'игриво-сексуально, teasing, body hints',
       hard: 'максимально откровенно и грязно (в рамках правил платформы)',
     };
 
-    const platformRules = {
+    const platformRules: Record<string, string> = {
       instagram:
         'Instagram: subtle innuendos, teasing emojis, romantic/sexual hints only. Avoid explicit sexual wording.',
       threads:
@@ -59,8 +59,8 @@ export async function POST(req: Request) {
 [Русский перевод]
 
 Платформа: ${platform}
-Правила платформы: ${platformRules[platform as keyof typeof platformRules]}
-Уровень: ${nsfwLevel} — ${levelDesc[nsfwLevel as keyof typeof levelDesc]}
+Правила платформы: ${platformRules[platform]}
+Уровень: ${nsfwLevel} — ${levelDesc[nsfwLevel]}
 Каждый вариант: 1–4 предложения.`;
 
     const normalizedImages = Array.isArray(imageBase64Array)
@@ -103,9 +103,6 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : 'Unknown server error';
 
-    return Response.json(
-      { error: message },
-      { status: 500 }
-    );
+    return Response.json({ error: message }, { status: 500 });
   }
 }
