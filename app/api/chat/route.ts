@@ -95,7 +95,7 @@ export async function POST(req: Request) {
       messages: requestMessages,
       temperature:
         nsfwLevel === 'hard' ? 1.1 : nsfwLevel === 'low' ? 0.8 : 0.98,
-      maxTokens: mode === 'caption' ? 450 : 300,
+      maxOutputTokens: mode === 'caption' ? 450 : 300,
     });
 
     return result.toTextStreamResponse();
