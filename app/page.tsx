@@ -97,6 +97,7 @@ export default function Home() {
     );
   } finally {
     setIsCaptionLoading(false);
+  }
   };
 
   return (
